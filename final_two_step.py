@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-两步法UserID方块增强工具 - 批量处理版
+三步法UserID方块增强工具 - 批量处理版（含边缘叠加）
 自动检测当前目录的所有JPG和PNG文件
-将生成的图层保存到output文件夹中
+将生成的图层保存到独立文件夹中
+新增边缘叠加功能，突出UI方块元素
 """
 
 import cv2
@@ -48,6 +49,46 @@ def step1_super_enhance(image_path):
     
     print("  ✅ 初步增强完成")
     return super_enhanced
+
+def step3_overlay_enhancement(ultra_clean, edges, alpha=0.4, enhance_brightness=1.1):
+    """
+    步骤3: 边缘叠加增强
+    将边缘检测结果叠加到ultra_clean上，突出方块元素
+    
+    参数:
+        ultra_clean: 超清晰版本图像
+        edges: 边缘检测图像（灰度）
+        alpha: 边缘强度系数（0-1，默认0.4）
+        enhance_brightness: 亮度增强系数（默认1.1）
+    """
+    print(f"  生成叠加增强版本... (边缘强度: {alpha})")
+    
+    # 1. 边缘预处理 - 一次性完成转换和增强
+    edges_3ch = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    
+    # 2. 形态学膨胀 + 高斯模糊（合并处理）
+    kernel_dilate = np.ones((3, 3), np.uint8)
+    edges_processed = cv2.dilate(edges_3ch, kernel_dilate, iterations=1)
+    edges_processed = cv2.GaussianBlur(edges_processed, (5, 5), 1.0)
+    
+    # 3. 归一化边缘，确保呈现白色
+    edges_normalized = cv2.normalize(edges_processed, None, 0, 255, cv2.NORM_MINMAX).astype(np.float32)
+    
+    # 4. 加权叠加（优化：减少类型转换）
+    ultra_clean_float = ultra_clean.astype(np.float32)
+    result = ultra_clean_float + edges_normalized * alpha
+    
+    # 5. 亮度增强
+    result = result * enhance_brightness
+    
+    # 6. Unsharp mask锐化（优化：一次性处理）
+    gaussian = cv2.GaussianBlur(result, (0, 0), 2.0)
+    result = result * 1.5 - gaussian * 0.5
+    
+    # 7. 裁剪并转换回uint8
+    result = np.clip(result, 0, 255).astype(np.uint8)
+    
+    return result
 
 def step2_generate_ultra_clean(img):
     """
@@ -153,7 +194,8 @@ def step2_generate_ultra_clean(img):
 
 def process_image(image_path):
     """
-    完整的两步处理流程 - 为每个图片创建独立文件夹
+    完整的三步处理流程 - 为每个图片创建独立文件夹
+    包含边缘叠加增强功能
     """
     # 获取文件名（不含扩展名）
     base_name = os.path.splitext(os.path.basename(image_path))[0]
@@ -175,15 +217,22 @@ def process_image(image_path):
     print("📌 步骤2: 深度增强...")
     ultra_clean, edges = step2_generate_ultra_clean(super_enhanced)
     
+    # 步骤3: 边缘叠加增强
+    print("📌 步骤3: 边缘叠加...")
+    overlay_result = step3_overlay_enhancement(ultra_clean, edges)
+    
     # 保存最终结果到该图片的专属文件夹
     output_file1 = os.path.join(output_dir, f'{base_name}_ultra_clean.png')
     output_file2 = os.path.join(output_dir, f'{base_name}_edges.png')
+    output_file3 = os.path.join(output_dir, f'{base_name}_overlay.png')
     
     cv2.imwrite(output_file1, ultra_clean)
     cv2.imwrite(output_file2, edges)
+    cv2.imwrite(output_file3, overlay_result)
     
     print(f"  ✅ 已保存: {output_file1}")
     print(f"  ✅ 已保存: {output_file2}")
+    print(f"  ✅ 已保存: {output_file3}")
     
     return True, output_dir
 
@@ -191,9 +240,11 @@ def main():
     """
     主函数 - 批量处理当前目录的所有JPG和PNG文件
     每个原图都会有独立的输出文件夹
+    包含边缘叠加增强功能
     """
     print("="*50)
-    print("🎯 两步法UserID方块增强工具 - 批量处理版")
+    print("🎯 三步法UserID方块增强工具 - 批量处理版")
+    print("  包含边缘叠加增强，突出方块元素")
     print("  每个图片将生成独立的输出文件夹")
     print("="*50 + "\n")
     
@@ -240,6 +291,7 @@ def main():
         print(f"\n📂 创建了 {len(created_folders)} 个输出文件夹:")
         for folder in created_folders:
             print(f"    - {folder}/")
+            print(f"      包含: ultra_clean.png, edges.png, overlay.png")
     
     if failed_files:
         print(f"\n⚠️  处理失败的文件:")
